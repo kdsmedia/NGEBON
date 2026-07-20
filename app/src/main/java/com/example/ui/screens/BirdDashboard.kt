@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -17,7 +18,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -26,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.repository.GameRepository
 import com.example.ui.viewmodel.GameViewModel
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -270,314 +274,467 @@ fun BirdDashboard(
             } else {
                 items(filteredConfigs, key = { it.id }) { config ->
                     val inventory = inventories.find { it.birdId == config.id }
-                    val countOwned = inventory?.count ?: 0
-                    val isOwned = countOwned > 0
+                    BirdDashboardCard(
+                        config = config,
+                        inventory = inventory,
+                        currentCoins = currentCoins,
+                        totalProductionRate = totalProductionRate.toLong(),
+                        onBuy = { viewModel.buyBird(config.id) },
+                        onUpgrade = { viewModel.upgradeBird(config.id) }
+                    )
+                }
+            }
+        }
+    }
+}
 
-                    val canAfford = currentCoins >= config.cost
+@Composable
+fun BirdDashboardCard(
+    config: com.example.data.repository.BirdConfig,
+    inventory: com.example.data.model.BirdInventory?,
+    currentCoins: Long,
+    totalProductionRate: Long,
+    onBuy: () -> Unit,
+    onUpgrade: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val countOwned = inventory?.count ?: 0
+    val isOwned = countOwned > 0
+    val canAfford = currentCoins >= config.cost
 
-                    val themeColor = remember(config.colorHex) {
-                        try {
-                            Color(android.graphics.Color.parseColor(config.colorHex))
-                        } catch (e: Exception) {
-                            Color.Gray
-                        }
+    val themeColor = remember(config.colorHex) {
+        try {
+            Color(android.graphics.Color.parseColor(config.colorHex))
+        } catch (e: Exception) {
+            Color.Gray
+        }
+    }
+
+    // Animation tracking states
+    val currentLevel = inventory?.upgradeLevel ?: 1
+    val currentCount = inventory?.count ?: 0
+    var previousLevel by remember { mutableStateOf<Int?>(null) }
+    var previousCount by remember { mutableStateOf<Int?>(null) }
+    var showUpgradeEffect by remember { mutableStateOf(false) }
+    var effectType by remember { mutableStateOf("") } // "upgrade" or "buy"
+
+    LaunchedEffect(currentLevel) {
+        if (previousLevel != null && currentLevel > previousLevel!!) {
+            showUpgradeEffect = true
+            effectType = "upgrade"
+            delay(1500)
+            showUpgradeEffect = false
+        }
+        previousLevel = currentLevel
+    }
+
+    LaunchedEffect(currentCount) {
+        if (previousCount != null && currentCount > previousCount!!) {
+            showUpgradeEffect = true
+            effectType = "buy"
+            delay(1500)
+            showUpgradeEffect = false
+        }
+        previousCount = currentCount
+    }
+
+    // Bounce Scale Animation
+    val scale by animateFloatAsState(
+        targetValue = if (showUpgradeEffect) 1.05f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "bounceScale"
+    )
+
+    // Border glowing/color animation spec
+    val infiniteTransition = rememberInfiniteTransition(label = "glowPulse")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 0.9f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseAlpha"
+    )
+
+    val customBorderColor = if (showUpgradeEffect) {
+        if (effectType == "upgrade") {
+            MaterialTheme.colorScheme.tertiary.copy(alpha = pulseAlpha)
+        } else {
+            MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha)
+        }
+    } else {
+        if (isOwned) themeColor.copy(alpha = 0.5f) else Color.LightGray.copy(alpha = 0.5f)
+    }
+
+    val customBorderWidth = if (showUpgradeEffect) 2.5.dp else (if (isOwned) 1.5.dp else 1.dp)
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .scale(scale)
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("dashboard_bird_card_${config.id}"),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (showUpgradeEffect) {
+                    if (effectType == "upgrade") {
+                        MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.15f)
+                    } else {
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)
                     }
-
-                    Card(
+                } else if (isOwned) {
+                    MaterialTheme.colorScheme.surface
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                }
+            ),
+            border = BorderStroke(
+                width = customBorderWidth,
+                color = customBorderColor
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = if (showUpgradeEffect) 6.dp else if (isOwned) 2.dp else 0.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // Floating Success Banner/Badge if upgraded/purchased
+                AnimatedVisibility(
+                    visible = showUpgradeEffect,
+                    enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(),
+                    exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut()
+                ) {
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .testTag("dashboard_bird_card_${config.id}"),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isOwned) {
-                                MaterialTheme.colorScheme.surface
+                            .background(
+                                if (effectType == "upgrade") {
+                                    MaterialTheme.colorScheme.tertiary
+                                } else {
+                                    MaterialTheme.colorScheme.primary
+                                }
+                            )
+                            .padding(vertical = 6.dp, horizontal = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (effectType == "upgrade") "✨ UPGRADE SUKSES! Laju Produksi +50% ✨" else "🎉 BURUNG BERHASIL DIBELI! 🎉",
+                            color = if (effectType == "upgrade") MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onPrimary,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Left Circle containing Icon with Theme Color Background
+                    val rotateAngle by animateFloatAsState(
+                        targetValue = if (showUpgradeEffect) 360f else 0f,
+                        animationSpec = tween(1000, easing = FastOutSlowInEasing),
+                        label = "iconRotate"
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(CircleShape)
+                            .background(themeColor.copy(alpha = if (isOwned) 0.15f else 0.05f))
+                            .border(
+                                1.5.dp,
+                                if (isOwned) themeColor else Color.Gray.copy(alpha = 0.5f),
+                                CircleShape
+                            )
+                            .graphicsLayer(rotationZ = rotateAngle),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (isOwned) {
+                                if (showUpgradeEffect) "✨" else "🐦"
                             } else {
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                            }
-                        ),
-                        border = BorderStroke(
-                            width = if (isOwned) 1.5.dp else 1.dp,
-                            color = if (isOwned) themeColor.copy(alpha = 0.5f) else Color.LightGray.copy(alpha = 0.5f)
-                        ),
-                        elevation = CardDefaults.cardElevation(defaultElevation = if (isOwned) 2.dp else 0.dp)
+                                "🔒"
+                            },
+                            fontSize = 22.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    // Middle Info Section
+                    Column(
+                        modifier = Modifier.weight(1f)
                     ) {
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = config.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isOwned) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Badge(
+                                    containerColor = if (isOwned) themeColor.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant,
+                                    contentColor = if (isOwned) themeColor else MaterialTheme.colorScheme.onSurfaceVariant
+                                ) {
+                                    Text(
+                                        text = "Tier ${config.id}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                                if (isOwned) {
+                                    val badgeBgColor by animateColorAsState(
+                                        targetValue = if (showUpgradeEffect && effectType == "upgrade") {
+                                            MaterialTheme.colorScheme.tertiaryContainer
+                                        } else {
+                                            MaterialTheme.colorScheme.surfaceVariant
+                                        },
+                                        animationSpec = tween(500),
+                                        label = "badgeBgColor"
+                                    )
+                                    Badge(
+                                        containerColor = badgeBgColor,
+                                        contentColor = if (showUpgradeEffect && effectType == "upgrade") {
+                                            MaterialTheme.colorScheme.onTertiaryContainer
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        }
+                                    ) {
+                                        Text(
+                                            text = "Lv. ${inventory?.upgradeLevel ?: 1}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Text(
+                            text = if (isOwned) "Milik Anda: $countOwned ekor" else "Belum Terbuka",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = if (isOwned) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (isOwned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // Production Rate Row
+                        Row(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Left Circle containing Icon with Theme Color Background
-                            Box(
-                                modifier = Modifier
-                                    .size(52.dp)
-                                    .clip(CircleShape)
-                                    .background(themeColor.copy(alpha = if (isOwned) 0.15f else 0.05f))
-                                    .border(1.5.dp, if (isOwned) themeColor else Color.Gray.copy(alpha = 0.5f), CircleShape),
-                                contentAlignment = Alignment.Center
+                            Icon(
+                                imageVector = Icons.Default.TrendingUp,
+                                contentDescription = "Produksi",
+                                tint = if (isOwned) MaterialTheme.colorScheme.primary else Color.Gray,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            val activeRate = GameRepository.getProductionRate(config.eggsPer5Min, inventory?.upgradeLevel ?: 1)
+                            Text(
+                                text = "Laju: +$activeRate telur / 5 m per ekor",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        if (isOwned && totalProductionRate > 0) {
+                            val activeRate = GameRepository.getProductionRate(config.eggsPer5Min, inventory?.upgradeLevel ?: 1)
+                            val contributionPercent = ((activeRate * countOwned).toFloat() / totalProductionRate * 100).toInt()
+                            Text(
+                                text = "Kontribusi: $contributionPercent% dari total peternakan",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.secondary,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(top = 2.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Cost and Purchase Button Section
+                        if (isOwned) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(vertical = 8.dp),
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+                            )
+                            // Row for Beli Lagi (Buy More)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text(
-                                    text = if (isOwned) "🐦" else "🔒",
-                                    fontSize = 22.sp
-                                )
+                                Column {
+                                    Text(
+                                        text = "Tambah Populasi (+1 ekor):",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.MonetizationOn,
+                                            contentDescription = "Koin",
+                                            tint = if (canAfford) Color(0xFFFBC02D) else Color.Gray,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "${config.cost} Koin",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (canAfford) MaterialTheme.colorScheme.onSurface else Color.Gray
+                                        )
+                                    }
+                                }
+
+                                Button(
+                                    onClick = onBuy,
+                                    enabled = canAfford,
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.primary,
+                                        disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                                    ),
+                                    modifier = Modifier
+                                        .height(32.dp)
+                                        .testTag("dashboard_buy_button_${config.id}")
+                                ) {
+                                    Text(
+                                        text = "Beli Lagi",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
 
-                            Spacer(modifier = Modifier.width(12.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
 
-                            // Middle Info Section
-                            Column(
-                                modifier = Modifier.weight(1f)
+                            // Row for Upgrade (Tingkatkan Laju)
+                            val upgradeCost = GameRepository.getUpgradeCost(config.cost, inventory?.upgradeLevel ?: 1)
+                            val canAffordUpgrade = currentCoins >= upgradeCost
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    modifier = Modifier.fillMaxWidth()
+                                Column {
+                                    Text(
+                                        text = "Upgrade Laju Produksi (+50%):",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.MonetizationOn,
+                                            contentDescription = "Koin",
+                                            tint = if (canAffordUpgrade) Color(0xFFFBC02D) else Color.Gray,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "$upgradeCost Koin",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (canAffordUpgrade) MaterialTheme.colorScheme.onSurface else Color.Gray
+                                        )
+                                    }
+                                }
+
+                                Button(
+                                    onClick = onUpgrade,
+                                    enabled = canAffordUpgrade,
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.tertiary,
+                                        disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                                    ),
+                                    modifier = Modifier
+                                        .height(32.dp)
+                                        .testTag("dashboard_upgrade_button_${config.id}")
                                 ) {
                                     Text(
-                                        text = config.name,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isOwned) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        text = "Upgrade Laju",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
                                     )
-
+                                }
+                            }
+                        } else {
+                            // Not owned yet, standard unlock flow
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "Biaya Buka:",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
                                     Row(
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Badge(
-                                            containerColor = if (isOwned) themeColor.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant,
-                                            contentColor = if (isOwned) themeColor else MaterialTheme.colorScheme.onSurfaceVariant
-                                        ) {
-                                            Text(
-                                                text = "Tier ${config.id}",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                        if (isOwned) {
-                                            Badge(
-                                                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                                                contentColor = MaterialTheme.colorScheme.onTertiaryContainer
-                                            ) {
-                                                Text(
-                                                    text = "Lv. ${inventory?.upgradeLevel ?: 1}",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                )
-                                            }
-                                        }
+                                        Icon(
+                                            imageVector = Icons.Default.MonetizationOn,
+                                            contentDescription = "Koin",
+                                            tint = if (canAfford) Color(0xFFFBC02D) else Color.Gray,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "${config.cost} Koin",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (canAfford) MaterialTheme.colorScheme.onSurface else Color.Gray
+                                        )
                                     }
                                 }
 
-                                Text(
-                                    text = if (isOwned) "Milik Anda: $countOwned ekor" else "Belum Terbuka",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = if (isOwned) FontWeight.SemiBold else FontWeight.Normal,
-                                    color = if (isOwned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                )
-
-                                Spacer(modifier = Modifier.height(6.dp))
-
-                                // Production Rate Row
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically
+                                Button(
+                                    onClick = onBuy,
+                                    enabled = canAfford,
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = themeColor,
+                                        disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                                    ),
+                                    modifier = Modifier
+                                        .height(34.dp)
+                                        .testTag("dashboard_buy_button_${config.id}")
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.TrendingUp,
-                                        contentDescription = "Produksi",
-                                        tint = if (isOwned) MaterialTheme.colorScheme.primary else Color.Gray,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    val activeRate = GameRepository.getProductionRate(config.eggsPer5Min, inventory?.upgradeLevel ?: 1)
                                     Text(
-                                        text = "Laju: +$activeRate telur / 5 m per ekor",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        text = "Buka",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
                                     )
                                 }
-
-                                if (isOwned && totalProductionRate > 0) {
-                                    val activeRate = GameRepository.getProductionRate(config.eggsPer5Min, inventory?.upgradeLevel ?: 1)
-                                    val contributionPercent = ((activeRate * countOwned).toFloat() / totalProductionRate * 100).toInt()
-                                    Text(
-                                        text = "Kontribusi: $contributionPercent% dari total peternakan",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.secondary,
-                                        fontWeight = FontWeight.Medium,
-                                        modifier = Modifier.padding(top = 2.dp)
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                // Cost and Purchase Button Section
-                                if (isOwned) {
-                                    HorizontalDivider(
-                                        modifier = Modifier.padding(vertical = 8.dp),
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
-                                    )
-                                    // Row for Beli Lagi (Buy More)
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Column {
-                                            Text(
-                                                text = "Tambah Populasi (+1 ekor):",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                            )
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Icon(
-                                                    imageVector = Icons.Default.MonetizationOn,
-                                                    contentDescription = "Koin",
-                                                    tint = if (canAfford) Color(0xFFFBC02D) else Color.Gray,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text(
-                                                    text = "${config.cost} Koin",
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = if (canAfford) MaterialTheme.colorScheme.onSurface else Color.Gray
-                                                )
-                                            }
-                                        }
-
-                                        Button(
-                                            onClick = { viewModel.buyBird(config.id) },
-                                            enabled = canAfford,
-                                            shape = RoundedCornerShape(8.dp),
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = MaterialTheme.colorScheme.primary,
-                                                disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
-                                            ),
-                                            modifier = Modifier
-                                                .height(32.dp)
-                                                .testTag("dashboard_buy_button_${config.id}")
-                                        ) {
-                                            Text(
-                                                text = "Beli Lagi",
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.height(8.dp))
-
-                                    // Row for Upgrade (Tingkatkan Laju)
-                                    val upgradeCost = GameRepository.getUpgradeCost(config.cost, inventory?.upgradeLevel ?: 1)
-                                    val canAffordUpgrade = currentCoins >= upgradeCost
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Column {
-                                            Text(
-                                                text = "Upgrade Laju Produksi (+50%):",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                            )
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Icon(
-                                                    imageVector = Icons.Default.MonetizationOn,
-                                                    contentDescription = "Koin",
-                                                    tint = if (canAffordUpgrade) Color(0xFFFBC02D) else Color.Gray,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text(
-                                                    text = "$upgradeCost Koin",
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = if (canAffordUpgrade) MaterialTheme.colorScheme.onSurface else Color.Gray
-                                                )
-                                            }
-                                        }
-
-                                        Button(
-                                            onClick = { viewModel.upgradeBird(config.id) },
-                                            enabled = canAffordUpgrade,
-                                            shape = RoundedCornerShape(8.dp),
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = MaterialTheme.colorScheme.tertiary,
-                                                disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
-                                            ),
-                                            modifier = Modifier
-                                                .height(32.dp)
-                                                .testTag("dashboard_upgrade_button_${config.id}")
-                                        ) {
-                                            Text(
-                                                text = "Upgrade Laju",
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-                                } else {
-                                    // Not owned yet, standard unlock flow
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Column {
-                                            Text(
-                                                text = "Biaya Buka:",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                            )
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.MonetizationOn,
-                                                    contentDescription = "Koin",
-                                                    tint = if (canAfford) Color(0xFFFBC02D) else Color.Gray,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text(
-                                                    text = "${config.cost} Koin",
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = if (canAfford) MaterialTheme.colorScheme.onSurface else Color.Gray
-                                                )
-                                            }
-                                        }
-
-                                        Button(
-                                            onClick = { viewModel.buyBird(config.id) },
-                                            enabled = canAfford,
-                                            shape = RoundedCornerShape(8.dp),
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = themeColor,
-                                                disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
-                                            ),
-                                            modifier = Modifier
-                                                .height(34.dp)
-                                                .testTag("dashboard_buy_button_${config.id}")
-                                        ) {
-                                            Text(
-                                                text = "Buka",
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-                                }             }
                             }
                         }
                     }
@@ -585,3 +742,4 @@ fun BirdDashboard(
             }
         }
     }
+}
