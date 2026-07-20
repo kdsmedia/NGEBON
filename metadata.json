@@ -1,0 +1,6 @@
+{
+  "name": "NGEBON",
+  "description": "Game strategi beternak burung premium. Kembangkan peternakan burungmu dari Pipit hingga burung raksasa, panen telur, dapatkan koin, dan kembangkan bisnis peternakan terbaik!",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
