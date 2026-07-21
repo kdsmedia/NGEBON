@@ -2,6 +2,7 @@ package com.example.data.database
 
 import androidx.room.*
 import com.example.data.model.BirdInventory
+import com.example.data.model.DailyMissionEntity
 import com.example.data.model.UserProgress
 import com.example.data.model.WithdrawLog
 import kotlinx.coroutines.flow.Flow
@@ -37,6 +38,21 @@ interface GameDao {
 
     @Query("UPDATE withdraw_log SET timestamp = timestamp - :offsetMillis WHERE status = 'MENUNGGU'")
     suspend fun shiftPendingWithdrawLogsTime(offsetMillis: Long)
+
+    @Query("SELECT * FROM daily_mission")
+    fun getDailyMissionsFlow(): Flow<List<DailyMissionEntity>>
+
+    @Query("SELECT * FROM daily_mission")
+    suspend fun getDailyMissionsDirect(): List<DailyMissionEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrUpdateMissions(missions: List<DailyMissionEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrUpdateMission(mission: DailyMissionEntity)
+
+    @Query("DELETE FROM daily_mission")
+    suspend fun clearDailyMissions()
 
     @Query("DELETE FROM user_progress")
     suspend fun clearUserProgress()

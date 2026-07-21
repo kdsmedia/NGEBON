@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.database.AppDatabase
 import com.example.data.model.BirdInventory
+import com.example.data.model.DailyMissionEntity
 import com.example.data.model.UserProgress
 import com.example.data.model.WithdrawLog
 import com.example.data.repository.GameRepository
@@ -26,6 +27,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val birdInventory: StateFlow<List<BirdInventory>> = repository.birdInventory
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val dailyMissions: StateFlow<List<DailyMissionEntity>> = repository.dailyMissions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val withdrawLogs: StateFlow<List<WithdrawLog>> = repository.withdrawLogs
@@ -52,7 +56,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun showMessage(message: UiMessage) {
         viewModelScope.launch {
             _uiMessage.value = message
-            delay(3000L)
+            delay(3500L)
             if (_uiMessage.value == message) {
                 _uiMessage.value = null
             }
@@ -88,6 +92,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val config = GameRepository.getConfig(birdId) ?: return@launch
             val progress = userProgress.value ?: return@launch
+            val inventories = birdInventory.value
+            val inv = inventories.find { it.birdId == birdId }
+
+            if (config.cost == 0L && inv != null && inv.count >= 1) {
+                showMessage(UiMessage.Error("Burung gratis (${config.name}) hanya boleh dimiliki 1 ekor dan tidak dapat ditambah!"))
+                return@launch
+            }
 
             if (progress.coins < config.cost) {
                 showMessage(UiMessage.Error("Koin Anda kurang! Butuh ${config.cost} Koin untuk membeli ${config.name}."))
@@ -110,6 +121,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val inventories = birdInventory.value
             val inv = inventories.find { it.birdId == birdId } ?: return@launch
 
+            if (config.cost == 0L) {
+                showMessage(UiMessage.Error("Burung gratis (${config.name}) starter tidak dapat di-upgrade!"))
+                return@launch
+            }
+
             if (inv.count <= 0) {
                 showMessage(UiMessage.Error("Anda harus memiliki setidaknya 1 ekor ${config.name} sebelum meng-upgrade!"))
                 return@launch
@@ -130,8 +146,112 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun withdraw(coinsToDeduct: Long, paymentMethod: String, accountNumber: String) {
+    fun buyFeed(feedId: Int, qty: Int = 1) {
         viewModelScope.launch {
+            val (success, msg) = repository.buyFeed(feedId, qty)
+            if (success) {
+                showMessage(UiMessage.Success(msg))
+            } else {
+                showMessage(UiMessage.Error(msg))
+            }
+        }
+    }
+
+    fun buyVitamin(vitaminId: Int, qty: Int = 1) {
+        viewModelScope.launch {
+            val (success, msg) = repository.buyVitamin(vitaminId, qty)
+            if (success) {
+                showMessage(UiMessage.Success(msg))
+            } else {
+                showMessage(UiMessage.Error(msg))
+            }
+        }
+    }
+
+    fun claimAdRewardFreeFeed(feedId: Int = 1) {
+        viewModelScope.launch {
+            val (success, msg) = repository.claimAdRewardFreeFeed(feedId)
+            if (success) {
+                showMessage(UiMessage.Success(msg))
+            } else {
+                showMessage(UiMessage.Error(msg))
+            }
+        }
+    }
+
+    fun claimAdEggBooster() {
+        viewModelScope.launch {
+            val (success, msg) = repository.claimAdEggBooster()
+            if (success) {
+                showMessage(UiMessage.Success(msg))
+            } else {
+                showMessage(UiMessage.Error(msg))
+            }
+        }
+    }
+
+    fun claimAdFreeVitamin(vitaminId: Int = 1) {
+        viewModelScope.launch {
+            val (success, msg) = repository.claimAdFreeVitamin(vitaminId)
+            if (success) {
+                showMessage(UiMessage.Success(msg))
+            } else {
+                showMessage(UiMessage.Error(msg))
+            }
+        }
+    }
+
+    fun claimAdSuperClean() {
+        viewModelScope.launch {
+            val (success, msg) = repository.claimAdSuperClean()
+            if (success) {
+                showMessage(UiMessage.Success(msg))
+            } else {
+                showMessage(UiMessage.Error(msg))
+            }
+        }
+    }
+
+    fun feedBirdWithFeed(birdId: Int, feedId: Int) {
+        viewModelScope.launch {
+            val (success, msg) = repository.feedBirdWithFeed(birdId, feedId)
+            if (success) {
+                showMessage(UiMessage.Success(msg))
+            } else {
+                showMessage(UiMessage.Error(msg))
+            }
+        }
+    }
+
+    fun feedAllBirdsWithBestFeed() {
+        viewModelScope.launch {
+            val (success, msg) = repository.feedAllBirdsWithBestFeed()
+            if (success) {
+                showMessage(UiMessage.Success(msg))
+            } else {
+                showMessage(UiMessage.Error(msg))
+            }
+        }
+    }
+
+    fun giveVitaminToBird(birdId: Int, vitaminId: Int) {
+        viewModelScope.launch {
+            val (success, msg) = repository.giveVitaminToBird(birdId, vitaminId)
+            if (success) {
+                showMessage(UiMessage.Success(msg))
+            } else {
+                showMessage(UiMessage.Error(msg))
+            }
+        }
+    }
+
+    fun withdraw(coinsToDeduct: Long, paymentMethod: String, accountNumber: String, ownerName: String) {
+        viewModelScope.launch {
+            if (ownerName.trim().isEmpty()) {
+                showMessage(UiMessage.Error("Nama pemilik tidak boleh kosong!"))
+                return@launch
+            }
+
             if (accountNumber.trim().isEmpty()) {
                 showMessage(UiMessage.Error("Nomor akun/e-wallet tidak boleh kosong!"))
                 return@launch
@@ -148,13 +268,23 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
 
-            // Conversion: 100 Coins = Rp1
             val amountRp = coinsToDeduct / 100L
-            val success = repository.withdrawCoins(coinsToDeduct, paymentMethod, accountNumber, amountRp)
+            val (success, msg) = repository.withdrawCoins(coinsToDeduct, paymentMethod, accountNumber, ownerName, amountRp)
             if (success) {
-                showMessage(UiMessage.Success("Penarikan Rp$amountRp ke $paymentMethod berhasil diproses!"))
+                showMessage(UiMessage.Success(msg))
             } else {
-                showMessage(UiMessage.Error("Gagal memproses penarikan."))
+                showMessage(UiMessage.Error(msg))
+            }
+        }
+    }
+
+    fun claim500BonusCoins() {
+        viewModelScope.launch {
+            val (success, msg) = repository.claim500BonusCoins()
+            if (success) {
+                showMessage(UiMessage.Success(msg))
+            } else {
+                showMessage(UiMessage.Error(msg))
             }
         }
     }
@@ -171,6 +301,91 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.resetGame()
             showMessage(UiMessage.Success("Data permainan berhasil direset."))
+        }
+    }
+
+    fun addCoins(amount: Long) {
+        viewModelScope.launch {
+            val success = repository.addCoins(amount)
+            if (success) {
+                showMessage(UiMessage.Success("Selamat! Anda mendapatkan $amount Koin gratis!"))
+            }
+        }
+    }
+
+    fun feedBird(birdId: Int) {
+        viewModelScope.launch {
+            // Default feed with feedId 1 (or best feed)
+            val (success, msg) = repository.feedBirdWithFeed(birdId, 1)
+            if (success) {
+                showMessage(UiMessage.Success(msg))
+            } else {
+                showMessage(UiMessage.Error(msg))
+            }
+        }
+    }
+
+    fun claimMissionReward(missionId: String) {
+        viewModelScope.launch {
+            val missions = dailyMissions.value
+            val mission = missions.find { it.id == missionId }
+            val reward = mission?.rewardCoins ?: 0L
+            val success = repository.claimMissionReward(missionId)
+            if (success) {
+                showMessage(UiMessage.Success("🎉 Selamat! Anda mendapatkan +$reward Koin dari Misi Harian!"))
+            } else {
+                showMessage(UiMessage.Error("Misi belum selesai atau sudah diklaim."))
+            }
+        }
+    }
+
+    fun cleanCage() {
+        viewModelScope.launch {
+            val (success, msg) = repository.cleanCage()
+            if (success) {
+                showMessage(UiMessage.Success(msg))
+            } else {
+                showMessage(UiMessage.Error(msg))
+            }
+        }
+    }
+
+    fun spinLuckyWheel(isAdSpin: Boolean = false) {
+        viewModelScope.launch {
+            val (success, msg) = repository.spinLuckyWheel(isAdSpin)
+            if (success) {
+                showMessage(UiMessage.Success(msg))
+            } else {
+                showMessage(UiMessage.Error(msg))
+            }
+        }
+    }
+
+    fun crossbreedBirds(parent1Id: Int, parent2Id: Int) {
+        viewModelScope.launch {
+            val (success, msg) = repository.crossbreedBirds(parent1Id, parent2Id)
+            if (success) {
+                showMessage(UiMessage.Success(msg))
+            } else {
+                showMessage(UiMessage.Error(msg))
+            }
+        }
+    }
+
+    fun addMiniGameReward(coinsEarned: Long) {
+        viewModelScope.launch {
+            val (success, msg) = repository.addMiniGameReward(coinsEarned)
+            if (success) {
+                showMessage(UiMessage.Success(msg))
+            } else {
+                showMessage(UiMessage.Error(msg))
+            }
+        }
+    }
+
+    fun feedAllBirds() {
+        viewModelScope.launch {
+            feedAllBirdsWithBestFeed()
         }
     }
 }

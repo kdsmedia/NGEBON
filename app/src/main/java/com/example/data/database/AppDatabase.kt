@@ -5,12 +5,13 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.example.data.model.BirdInventory
+import com.example.data.model.DailyMissionEntity
 import com.example.data.model.UserProgress
 import com.example.data.model.WithdrawLog
 
 @Database(
-    entities = [UserProgress::class, BirdInventory::class, WithdrawLog::class],
-    version = 2,
+    entities = [UserProgress::class, BirdInventory::class, WithdrawLog::class, DailyMissionEntity::class],
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
